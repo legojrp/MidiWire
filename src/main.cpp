@@ -7,6 +7,19 @@
 #include <thread>
 #include <chrono>
 
+#include "app/AppController.hpp"
+
+#if defined(__APPLE__)
+    #include "midi/MacMidiDriver.hpp"
+    using NativeDriver = MidiWire::MacMidiDriver;
+#elif defined(__linux__)
+    #include "midi/AlsaMidiDriver.hpp"
+    using NativeDriver = MidiWire::AlsaMidiDriver;
+#elif defined(_WIN32)
+    #include "midi/WinMidiDriver.hpp"
+    using NativeDriver = MidiWire::WinMidiDriver;
+#endif
+
 void printBanner() {
     std::cout << "===================================================\n";
     std::cout << "             MIDIWIRE CLI CONTROLLER               \n";
@@ -18,8 +31,8 @@ int main() {
     printBanner();
 
     // 1. Initialize Controller with Platform Driver
-    auto macDriver = std::make_unique<MidiWire::MacMidiDriver>();
-    MidiWire::AppController app(std::move(macDriver));
+    auto driver = std::make_unique<NativeDriver>();
+    MidiWire::AppController app(std::move(driver));
 
     if (!app.initialize()) {
         std::cerr << "[!] Failed to initialize AppController subsystems.\n";

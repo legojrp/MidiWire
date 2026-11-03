@@ -45,9 +45,14 @@ void SignalingClient::connect(const std::string& url) {
         // Auto-send room join message as soon as socket connects
         if (!roomId.empty() && ws_ && ws_->isOpen()) {
             try {
-                nlohmann::json msg = {{"type", "join"}, {"roomId", roomId}};
+                nlohmann::json msg = {
+                    {"type", "join"},
+                    {"action", "join"},
+                    {"room", roomId},
+                    {"roomId", roomId}
+                };
                 ws_->send(msg.dump());
-                std::cout << "[SignalingClient] Joined room: " << roomId << "\n";
+                std::cout << "[SignalingClient] Sent join request for room: " << roomId << "\n";
             } catch (const std::exception& e) {
                 std::cerr << "[SignalingClient] Exception during auto-join: " << e.what() << "\n";
             }
@@ -68,21 +73,33 @@ void SignalingClient::connect(const std::string& url) {
         std::cerr << "[SignalingClient] WebSocket error: " << error << "\n";
     });
 
-    ws_->onMessage([this](rtc::message_variant data) {
-        if (std::holds_alternative<std::string>(data)) {
-            try {
-                auto jsonMsg = nlohmann::json::parse(std::get<std::string>(data));
-                std::string type = jsonMsg.value("type", "");
-                nlohmann::json payload = jsonMsg.value("payload", nlohmann::json::object());
+    ws_->onMessage([this](std::variant<rtc::binary, std::string> message) {
+        if (std::holds_alternative<std::string>(message)) {
+            std::string rawMsg = std::get<std::string>(message);
+            
+            // Log raw incoming WebSocket payloads for debugging
+            std::cout << "[SIGNAL RAW RECV] " << rawMsg << std::endl;
 
-                SignalCallback cb;
+            try {
+                auto json = nlohmann::json::parse(rawMsg);
+                
+                // Extract event type regardless of field key (type, event, action)
+                std::string type;
+                if (json.contains("type") && json["type"].is_string()) type = json["type"];
+                else if (json.contains("event") && json["event"].is_string()) type = json["event"];
+                else if (json.contains("action") && json["action"].is_string()) type = json["action"];
+
+                SignalCallback sigCb;
                 {
                     std::lock_guard<std::mutex> lk(mutex_);
-                    cb = onSignal_;
+                    sigCb = onSignal_;
                 }
-                if (cb) cb(type, payload);
+
+                if (sigCb) {
+                    sigCb(type, json);
+                }
             } catch (const std::exception& e) {
-                std::cerr << "[SignalingClient] Error parsing JSON: " << e.what() << "\n";
+                std::cerr << "[SignalingClient] Failed to parse JSON: " << e.what() << "\n";
             }
         }
     });
@@ -112,7 +129,12 @@ void SignalingClient::joinRoom(const std::string& roomId) {
 
     if (ws_ && ws_->isOpen()) {
         try {
-            nlohmann::json msg = {{"type", "join"}, {"roomId", roomId}};
+            nlohmann::json msg = {
+                {"type", "join"},
+                {"action", "join"},
+                {"room", roomId},
+                {"roomId", roomId}
+            };
             ws_->send(msg.dump());
             std::cout << "[SignalingClient] Sent join request for room: " << roomId << "\n";
         } catch (const std::exception& e) {
@@ -125,7 +147,26 @@ void SignalingClient::sendSignal(const std::string& type, const nlohmann::json& 
     std::lock_guard<std::mutex> lock(mutex_);
     if (ws_ && ws_->isOpen()) {
         try {
-            nlohmann::json msg = {{"type", type}, {"payload", payload}};
+            nlohmann::json msg = {
+                {"type", type},
+                {"action", type},
+                {"room", currentRoomId_},
+                {"roomId", currentRoomId_},
+                {"payload", payload},
+                {"data", payload}
+            };
+
+            // Unpack SDP and candidate keys to top-level for flat signaling servers
+            if (payload.contains("sdp")) {
+                msg["sdp"] = payload["sdp"];
+            }
+            if (payload.contains("candidate")) {
+                msg["candidate"] = payload["candidate"];
+            }
+            if (payload.contains("mid")) {
+                msg["mid"] = payload["mid"];
+            }
+
             ws_->send(msg.dump());
         } catch (const std::exception& e) {
             std::cerr << "[SignalingClient] Exception sending signal: " << e.what() << "\n";

@@ -29,6 +29,9 @@ public:
     void sendSignal(const std::string& type, const nlohmann::json& payload);
 
 private:
+    void sendJoinRoomInternal(const std::string& roomId);
+    
+    std::string pendingRoomId_;
     std::shared_ptr<rtc::WebSocket> ws_;
     ConnectedCallback onConnected_;
     DisconnectedCallback onDisconnected_;

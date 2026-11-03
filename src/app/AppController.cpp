@@ -87,27 +87,58 @@ bool AppController::initialize() {
     });
 
     // Inbound Signaling Event Handler
+    // Inbound Signaling Message Handler
     signalingClient_->setOnSignal([this](const std::string& type, const nlohmann::json& payload) {
         if (!netEngine_) return;
 
-        if (type == "peer_joined" || type == "user_joined" || type == "peer-joined" || type == "join") {
-            std::cout << "[Signaling] Remote peer connected. Initiating WebRTC Offer..." << std::endl;
-            netEngine_->createOffer();
-        } else if (type == "offer" || type == "answer") {
-            std::cout << "[Signaling] Received " << type << " SDP. Processing..." << std::endl;
-            std::string sdp;
-            if (payload.contains("sdp") && payload["sdp"].is_string()) {
-                sdp = payload["sdp"].get<std::string>();
+        std::cout << "[SIGNAL EVENT] Processing type: '" << type << "'" << std::endl;
+
+        // 1. Peer Join Detection (Event OR Peer List)
+        bool peerDetected = (type == "peer_joined" || type == "user_joined" || type == "peer-joined" || type == "join" || type == "peer_connect");
+        
+        // Also check if room-join response contains a list of existing peers
+        if (!peerDetected && (type == "joined" || type == "room_joined" || type == "room")) {
+            if (payload.contains("peers") && payload["peers"].is_array() && !payload["peers"].empty()) {
+                peerDetected = true;
+            } else if (payload.contains("users") && payload["users"].is_array() && !payload["users"].empty()) {
+                peerDetected = true;
             }
-            netEngine_->handleRemoteDescription(type, sdp);
-        } else if (type == "candidate") {
+        }
+
+        if (peerDetected) {
+            std::cout << "[NET] Remote peer detected in room! Initiating WebRTC Offer..." << std::endl;
+            netEngine_->createOffer();
+            return;
+        }
+
+        // 2. Extract SDP (Supports top-level, payload, or nested data object)
+        nlohmann::json data = payload;
+        if (payload.contains("data") && payload["data"].is_object()) data = payload["data"];
+        if (payload.contains("payload") && payload["payload"].is_object()) data = payload["payload"];
+        if (payload.contains("signal") && payload["signal"].is_object()) data = payload["signal"];
+
+        std::string sdpType = type;
+        if (data.contains("type") && data["type"].is_string()) {
+            sdpType = data["type"].get<std::string>();
+        }
+
+        if (sdpType == "offer" || sdpType == "answer") {
+            std::cout << "[NET] Processing remote " << sdpType << " SDP..." << std::endl;
+            std::string sdp;
+            if (data.contains("sdp") && data["sdp"].is_string()) {
+                sdp = data["sdp"].get<std::string>();
+            }
+            netEngine_->handleRemoteDescription(sdpType, sdp);
+        } 
+        // 3. ICE Candidate Handling
+        else if (sdpType == "candidate" || sdpType == "ice_candidate" || type == "candidate") {
             std::string candidate;
             std::string mid;
-            if (payload.contains("candidate") && payload["candidate"].is_string()) {
-                candidate = payload["candidate"].get<std::string>();
+            if (data.contains("candidate") && data["candidate"].is_string()) {
+                candidate = data["candidate"].get<std::string>();
             }
-            if (payload.contains("mid") && payload["mid"].is_string()) {
-                mid = payload["mid"].get<std::string>();
+            if (data.contains("mid") && data["mid"].is_string()) {
+                mid = data["mid"].get<std::string>();
             }
             netEngine_->handleRemoteCandidate(candidate, mid);
         }

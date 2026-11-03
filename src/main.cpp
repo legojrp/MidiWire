@@ -1,13 +1,11 @@
 #include "app/AppController.hpp"
-#include "midi/MacMidiDriver.hpp"
 
 #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
 #include <chrono>
-
-#include "app/AppController.hpp"
+#include <algorithm>
 
 #if defined(__APPLE__)
     #include "midi/MacMidiDriver.hpp"
@@ -19,6 +17,18 @@
     #include "midi/WinMidiDriver.hpp"
     using NativeDriver = MidiWire::WinMidiDriver;
 #endif
+
+// Helper to safely read string inputs from stdin without buffer leftover issues
+static std::string readLine() {
+    std::string line;
+    if (std::getline(std::cin, line)) {
+        size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == std::string::npos) return "";
+        size_t end = line.find_last_not_of(" \t\r\n");
+        return line.substr(start, end - start + 1);
+    }
+    return "";
+}
 
 void printBanner() {
     std::cout << "===================================================\n";
@@ -49,11 +59,17 @@ int main() {
             std::cout << "  [" << i << "] " << devices[i] << "\n";
         }
         std::cout << "  Enter device index (or -1 to skip): ";
-        int choice = -1;
-        std::cin >> choice;
-        if (choice >= 0 && choice < static_cast<int>(devices.size())) {
-            app.selectMidiInputDevice(static_cast<uint32_t>(choice));
-            std::cout << "  -> Connected to input: " << devices[choice] << "\n";
+        std::string choiceStr = readLine();
+        if (!choiceStr.empty()) {
+            try {
+                int choice = std::stoi(choiceStr);
+                if (choice >= 0 && choice < static_cast<int>(devices.size())) {
+                    app.selectMidiInputDevice(static_cast<uint32_t>(choice));
+                    std::cout << "  -> Connected to input: " << devices[choice] << "\n";
+                }
+            } catch (...) {
+                std::cout << "  -> Invalid choice. Skipping physical MIDI input.\n";
+            }
         }
     }
     std::cout << "\n";
@@ -69,14 +85,11 @@ int main() {
 
     std::cout << "[Step 3] Network Configuration:\n";
     std::cout << "  Enter Signaling Server URL [default: ws://localhost:8080]: ";
-    std::cin.ignore();
-    std::string inputUrl;
-    std::getline(std::cin, inputUrl);
+    std::string inputUrl = readLine();
     if (!inputUrl.empty()) signalUrl = inputUrl;
 
     std::cout << "  Enter Room ID [default: jam-room-1]: ";
-    std::string inputRoom;
-    std::getline(std::cin, inputRoom);
+    std::string inputRoom = readLine();
     if (!inputRoom.empty()) roomId = inputRoom;
 
     std::cout << "\n[+] Connecting to " << signalUrl << " ...\n";
@@ -99,9 +112,10 @@ int main() {
     bool running = true;
     while (running) {
         std::cout << "MidiWire> ";
-        char cmd;
-        std::cin >> cmd;
+        std::string cmdStr = readLine();
+        if (cmdStr.empty()) continue;
 
+        char cmd = cmdStr[0];
         switch (cmd) {
             case 'p':
             case 'P':
@@ -112,10 +126,15 @@ int main() {
             case 'b':
             case 'B': {
                 std::cout << "  Enter new Jitter Buffer Depth (ms): ";
-                uint32_t ms;
-                if (std::cin >> ms) {
-                    app.setJitterBufferDepthMs(ms);
-                    std::cout << "  -> Jitter depth updated to " << ms << " ms.\n";
+                std::string msStr = readLine();
+                if (!msStr.empty()) {
+                    try {
+                        uint32_t ms = static_cast<uint32_t>(std::stoul(msStr));
+                        app.setJitterBufferDepthMs(ms);
+                        std::cout << "  -> Jitter depth updated to " << ms << " ms.\n";
+                    } catch (...) {
+                        std::cout << "  -> Invalid depth value.\n";
+                    }
                 }
                 break;
             }

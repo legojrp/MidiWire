@@ -21,15 +21,15 @@ void CALLBACK WinMidiDriver::midiInProc(HMIDIIN hMidiIn, UINT wMsg, DWORD_PTR dw
         auto* driver = reinterpret_cast<WinMidiDriver*>(dwInstance);
         if (!driver) return;
 
-        uint8_t status = dwParam1 & 0xFF;
-        uint8_t data1  = (dwParam1 >> 8) & 0xFF;
-        uint8_t data2  = (dwParam1 >> 16) & 0xFF;
+        uint8_t rawStatus = dwParam1 & 0xFF;
+        uint8_t data1     = (dwParam1 >> 8) & 0xFF;
+        uint8_t data2     = (dwParam1 >> 16) & 0xFF;
+        uint8_t channel   = rawStatus & 0x0F;
 
-        MidiPacket packet;
-        packet.bytes = { status, data1, data2 };
-        packet.timestamp = static_cast<uint64_t>(dwParam2);
+        MidiPacket packet(rawStatus, data1, data2, channel, static_cast<uint64_t>(dwParam2));
 
-        printMidiBytes("DRIVER IN", packet.bytes.data(), packet.bytes.size());
+        std::vector<uint8_t> rawBytes = { packet.status, packet.data1, packet.data2 };
+        printMidiBytes("DRIVER IN", rawBytes.data(), rawBytes.size());
 
         if (driver->inputCallback_) {
             driver->inputCallback_(packet);
@@ -117,16 +117,18 @@ bool WinMidiDriver::createVirtualOutputPort(const std::string& portName) {
 void WinMidiDriver::sendToVirtualPort(const MidiPacket& packet) {
     if (!hMidiOut_) return;
 
-    const auto& bytes = packet.bytes;
-    printMidiBytes("DRIVER OUT", bytes.data(), bytes.size());
-
-    if (bytes.size() >= 3) {
-        DWORD msg = bytes[0] | (bytes[1] << 8) | (bytes[2] << 16);
-        midiOutShortMsg(hMidiOut_, msg);
-    } else if (bytes.size() == 2) {
-        DWORD msg = bytes[0] | (bytes[1] << 8);
-        midiOutShortMsg(hMidiOut_, msg);
+    if (packet.isSysEx()) {
+        if (!packet.sysex.empty()) {
+            printMidiBytes("DRIVER OUT SYSEX", packet.sysex.data(), packet.sysex.size());
+        }
+        return;
     }
+
+    std::vector<uint8_t> rawBytes = { packet.status, packet.data1, packet.data2 };
+    printMidiBytes("DRIVER OUT", rawBytes.data(), rawBytes.size());
+
+    DWORD msg = packet.status | (packet.data1 << 8) | (packet.data2 << 16);
+    midiOutShortMsg(hMidiOut_, msg);
 }
 
 } // namespace MidiWire

@@ -78,7 +78,7 @@ void SignalingClient::connect(const std::string& url) {
             std::string rawMsg = std::get<std::string>(message);
             
             // Log raw incoming WebSocket payloads for debugging
-            std::cout << "[SIGNAL RAW RECV] " << rawMsg << std::endl;
+            // std::cout << "[SIGNAL RAW RECV] " << rawMsg << std::endl;
 
             try {
                 auto json = nlohmann::json::parse(rawMsg);

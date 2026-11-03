@@ -91,37 +91,24 @@ bool AppController::initialize() {
     signalingClient_->setOnSignal([this](const std::string& type, const nlohmann::json& payload) {
         if (!netEngine_) return;
 
-        std::cout << "[SIGNAL EVENT] Processing type: '" << type << "'" << std::endl;
-
-        // 1. Peer Join Detection (Event OR Peer List)
-        bool peerDetected = (type == "peer_joined" || type == "user_joined" || type == "peer-joined" || type == "join" || type == "peer_connect");
-        
-        // Also check if room-join response contains a list of existing peers
-        if (!peerDetected && (type == "joined" || type == "room_joined" || type == "room")) {
-            if (payload.contains("peers") && payload["peers"].is_array() && !payload["peers"].empty()) {
-                peerDetected = true;
-            } else if (payload.contains("users") && payload["users"].is_array() && !payload["users"].empty()) {
-                peerDetected = true;
-            }
-        }
-
-        if (peerDetected) {
-            std::cout << "[NET] Remote peer detected in room! Initiating WebRTC Offer..." << std::endl;
+        // 1. Peer Discovery: ONLY the existing peer initiates an offer when a new peer joins
+        if (type == "peer_joined" || type == "user_joined" || type == "peer-joined") {
+            std::cout << "[NET] Remote peer joined room. Initiating WebRTC Offer..." << std::endl;
             netEngine_->createOffer();
             return;
         }
 
-        // 2. Extract SDP (Supports top-level, payload, or nested data object)
+        // 2. Extract SDP payload
         nlohmann::json data = payload;
         if (payload.contains("data") && payload["data"].is_object()) data = payload["data"];
         if (payload.contains("payload") && payload["payload"].is_object()) data = payload["payload"];
-        if (payload.contains("signal") && payload["signal"].is_object()) data = payload["signal"];
 
         std::string sdpType = type;
         if (data.contains("type") && data["type"].is_string()) {
             sdpType = data["type"].get<std::string>();
         }
 
+        // 3. Process Remote Description (Offers generate Answers automatically inside NetworkEngine)
         if (sdpType == "offer" || sdpType == "answer") {
             std::cout << "[NET] Processing remote " << sdpType << " SDP..." << std::endl;
             std::string sdp;
@@ -130,7 +117,7 @@ bool AppController::initialize() {
             }
             netEngine_->handleRemoteDescription(sdpType, sdp);
         } 
-        // 3. ICE Candidate Handling
+        // 4. ICE Candidates
         else if (sdpType == "candidate" || sdpType == "ice_candidate" || type == "candidate") {
             std::string candidate;
             std::string mid;

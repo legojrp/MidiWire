@@ -138,6 +138,11 @@ void NetworkEngine::handleRemoteDescription(const std::string& type, const std::
 
     rtc::Description desc(sdp, type);
     pc_->setRemoteDescription(desc);
+
+    // CRITICAL: When receiving an offer, generate the Answer SDP to complete WebRTC handshake
+    if (type == "offer") {
+        pc_->setLocalDescription(); // Automatically creates Answer description
+    }
 }
 
 void NetworkEngine::handleRemoteCandidate(const std::string& candidate, const std::string& mid) {

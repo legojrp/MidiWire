@@ -4,25 +4,26 @@
 
 namespace MidiWire {
 
-// Helper to sanitize WebSocket URLs for signaling
 static std::string sanitizeWebSocketUrl(std::string url) {
     url.erase(0, url.find_first_not_of(" \t\r\n"));
     url.erase(url.find_last_not_of(" \t\r\n") + 1);
 
-    if (url.rfind("https://", 0) == 0) {
-        url.replace(0, 8, "wss://");
-    } else if (url.rfind("http://", 0) == 0) {
-        url.replace(0, 7, "ws://");
-    } else if (url.rfind("ws://", 0) == 0) {
-        if (url.find("onrender.com") != std::string::npos) {
+    if (url.rfind("ss://", 0) == 0 || url.rfind("s://", 0) == 0) {
+        url = "w" + url;
+    }
+
+    if (url.find("onrender.com") != std::string::npos || url.rfind("https://", 0) == 0) {
+        if (url.rfind("https://", 0) == 0) {
+            url.replace(0, 8, "wss://");
+        } else if (url.rfind("ws://", 0) == 0) {
             url.replace(0, 5, "wss://");
-        }
-    } else if (url.rfind("wss://", 0) != 0) {
-        if (url.find("localhost") != std::string::npos || url.find("127.0.0.1") != std::string::npos) {
-            url = "ws://" + url;
-        } else {
+        } else if (url.rfind("wss://", 0) != 0) {
             url = "wss://" + url;
         }
+    } else if (url.rfind("http://", 0) == 0) {
+        url.replace(0, 7, "ws://");
+    } else if (url.rfind("ws://", 0) != 0 && url.rfind("wss://", 0) != 0) {
+        url = "ws://" + url;
     }
     return url;
 }
@@ -51,22 +52,30 @@ bool AppController::initialize() {
 
     netEngine_->initialize("stun:stun.l.google.com:19302");
 
-    // Inbound Remote MIDI Callback
+    // Inbound Remote MIDI Callback with Timestamp Safeguard
     netEngine_->setOnMidiReceived([this](const std::vector<uint8_t>& payload) {
         MidiPacket pkt = Serializer::deserialize(payload);
         
-        // Drop Real-Time sync noise on receive
+        // Ignore status noise
         if (pkt.status == 0xF8 || pkt.status == 0xFE) return;
 
-        uint64_t targetLocalNs = clockSync_.remoteToLocalTime(pkt.timestampNs) 
-                                + (static_cast<uint64_t>(jitterBuffer_.getBufferDepthMs()) * 1000000ULL);
-        pkt.timestampNs = targetLocalNs;
+        uint64_t nowNs = ClockSynchronizer::getCurrentMonotonicNs();
+        uint64_t convertedNs = clockSync_.remoteToLocalTime(pkt.timestampNs);
+
+        // Fallback to immediate playback if clock sync offset is uncalibrated/unreasonable
+        if (convertedNs == 0 || convertedNs > nowNs + 5000000000ULL || convertedNs < nowNs - 5000000000ULL) {
+            pkt.timestampNs = nowNs + (static_cast<uint64_t>(jitterBuffer_.getBufferDepthMs()) * 1000000ULL);
+        } else {
+            pkt.timestampNs = convertedNs + (static_cast<uint64_t>(jitterBuffer_.getBufferDepthMs()) * 1000000ULL);
+        }
+
         jitterBuffer_.push(pkt);
     });
 
     // WebRTC Local Offer/Candidate signaling binding
     netEngine_->setOnLocalDescription([this](const std::string& type, const std::string& sdp) {
         if (signalingClient_) {
+            std::cout << "[NET] Sending Local " << type << " SDP to signaling server..." << std::endl;
             signalingClient_->sendSignal(type, {{"sdp", sdp}});
         }
     });
@@ -77,14 +86,15 @@ bool AppController::initialize() {
         }
     });
 
-    // Inbound Signaling Callback
+    // Inbound Signaling Event Handler
     signalingClient_->setOnSignal([this](const std::string& type, const nlohmann::json& payload) {
         if (!netEngine_) return;
 
-        if (type == "peer_joined" || type == "user_joined" || type == "join") {
-            std::cout << "[AppController] Remote peer detected in room. Creating WebRTC Offer..." << std::endl;
+        if (type == "peer_joined" || type == "user_joined" || type == "peer-joined" || type == "join") {
+            std::cout << "[Signaling] Remote peer connected. Initiating WebRTC Offer..." << std::endl;
             netEngine_->createOffer();
         } else if (type == "offer" || type == "answer") {
+            std::cout << "[Signaling] Received " << type << " SDP. Processing..." << std::endl;
             std::string sdp;
             if (payload.contains("sdp") && payload["sdp"].is_string()) {
                 sdp = payload["sdp"].get<std::string>();
@@ -174,12 +184,11 @@ void AppController::stop() {
 }
 
 void AppController::handleLocalMidiInput(const MidiPacket& packet) {
-    // Drop continuous MIDI Clock (0xF8) and Active Sensing (0xFE)
+    // Drop continuous clock noise
     if (packet.status == 0xF8 || packet.status == 0xFE) {
         return;
     }
 
-    // Only forward to WebRTC if DataChannel is actively connected
     if (netEngine_ && netEngine_->isConnected()) {
         MidiPacket pkt = packet;
         if (pkt.timestampNs == 0) {

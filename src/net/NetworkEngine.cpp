@@ -5,7 +5,6 @@
 
 namespace MidiWire {
 
-// Helper to log bytes cleanly in hexadecimal format
 static void printHex(const std::string& label, const std::vector<uint8_t>& bytes) {
     std::cout << "[" << label << "] (" << bytes.size() << " bytes): ";
     for (uint8_t b : bytes) {
@@ -22,7 +21,6 @@ NetworkEngine::~NetworkEngine() {
     std::shared_ptr<rtc::DataChannel> midiChan;
     std::shared_ptr<rtc::DataChannel> ctrlChan;
 
-    // Extract pointers and release class references under lock
     {
         std::lock_guard<std::mutex> lock(mutex_);
         pc = pc_;
@@ -37,9 +35,10 @@ NetworkEngine::~NetworkEngine() {
         onStateChanged_ = nullptr;
         onLocalDescription_ = nullptr;
         onLocalCandidate_ = nullptr;
+        pendingCandidates_.clear();
+        hasRemoteDescription_ = false;
     }
 
-    // Clear callbacks and close connections OUTSIDE lock to prevent deadlock
     if (pc) {
         pc->onStateChange(nullptr);
         pc->onLocalDescription(nullptr);
@@ -60,10 +59,15 @@ NetworkEngine::~NetworkEngine() {
 void NetworkEngine::initialize(const std::string& stunServer) {
     std::lock_guard<std::mutex> lock(mutex_);
 
+    hasRemoteDescription_ = false;
+    pendingCandidates_.clear();
+
     rtc::Configuration config;
     if (!stunServer.empty()) {
         config.iceServers.emplace_back(stunServer);
     }
+    config.iceServers.emplace_back("stun:stun1.l.google.com:19302");
+    config.iceServers.emplace_back("stun:stun2.l.google.com:19302");
 
     pc_ = std::make_shared<rtc::PeerConnection>(config);
 
@@ -127,7 +131,7 @@ void NetworkEngine::createOffer() {
 
     rtc::DataChannelInit controlConfig;
     controlChannel_ = pc_->createDataChannel("midi-control", controlConfig);
-    setupDataChannelCallbacks(controlChannel_, false); // Updated to pass controlChannel_
+    setupDataChannelCallbacks(controlChannel_, false);
 
     pc_->setLocalDescription(rtc::Description::Type::Offer);
 }
@@ -138,10 +142,16 @@ void NetworkEngine::handleRemoteDescription(const std::string& type, const std::
 
     rtc::Description desc(sdp, type);
     pc_->setRemoteDescription(desc);
+    hasRemoteDescription_ = true;
 
-    // CRITICAL: When receiving an offer, generate the Answer SDP to complete WebRTC handshake
+    // Flush queued candidates received prior to SDP exchange
+    for (const auto& cand : pendingCandidates_) {
+        pc_->addRemoteCandidate(cand);
+    }
+    pendingCandidates_.clear();
+
     if (type == "offer") {
-        pc_->setLocalDescription(); // Automatically creates Answer description
+        pc_->setLocalDescription();
     }
 }
 
@@ -150,7 +160,11 @@ void NetworkEngine::handleRemoteCandidate(const std::string& candidate, const st
     if (!pc_) return;
 
     rtc::Candidate cand(candidate, mid);
-    pc_->addRemoteCandidate(cand);
+    if (hasRemoteDescription_) {
+        pc_->addRemoteCandidate(cand);
+    } else {
+        pendingCandidates_.push_back(cand);
+    }
 }
 
 void NetworkEngine::setOnMidiReceived(BinaryCallback cb) {
@@ -181,7 +195,7 @@ void NetworkEngine::setOnLocalCandidate(CandidateCallback cb) {
 bool NetworkEngine::sendMidi(const std::vector<uint8_t>& payload) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (midiChannel_ && midiChannel_->isOpen()) {
-        printHex("NET SEND MIDI", payload); // Log outgoing binary MIDI
+        printHex("NET SEND MIDI", payload);
         return midiChannel_->send(reinterpret_cast<const rtc::byte*>(payload.data()), payload.size());
     } else {
         std::cerr << "[NET SEND FAILED] Cannot send MIDI — midiChannel_ is NOT open!" << std::endl;
@@ -192,7 +206,7 @@ bool NetworkEngine::sendMidi(const std::vector<uint8_t>& payload) {
 bool NetworkEngine::sendControl(const std::vector<uint8_t>& payload) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (controlChannel_ && controlChannel_->isOpen()) {
-        printHex("NET SEND CTRL", payload); // Log outgoing control packet
+        printHex("NET SEND CTRL", payload);
         return controlChannel_->send(reinterpret_cast<const rtc::byte*>(payload.data()), payload.size());
     } else {
         std::cerr << "[NET SEND FAILED] Cannot send Control — controlChannel_ is NOT open!" << std::endl;
@@ -202,6 +216,9 @@ bool NetworkEngine::sendControl(const std::vector<uint8_t>& payload) {
 
 bool NetworkEngine::isConnected() const {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (midiChannel_ && midiChannel_->isOpen()) {
+        return true;
+    }
     if (!pc_) return false;
     return pc_->state() == rtc::PeerConnection::State::Connected;
 }
@@ -209,7 +226,10 @@ bool NetworkEngine::isConnected() const {
 void NetworkEngine::setupDataChannelCallbacks(std::shared_ptr<rtc::DataChannel> channel, bool isMidi) {
     if (!channel) return;
 
-    // Log channel ready state
+    if (channel->isOpen()) {
+        std::cout << "[NET CHANNEL OPENED] DataChannel '" << channel->label() << "' is ready for transmission!" << std::endl;
+    }
+
     channel->onOpen([label = channel->label()]() {
         std::cout << "[NET CHANNEL OPENED] DataChannel '" << label << "' is ready for transmission!" << std::endl;
     });
@@ -222,7 +242,6 @@ void NetworkEngine::setupDataChannelCallbacks(std::shared_ptr<rtc::DataChannel> 
                 return static_cast<uint8_t>(b);
             });
 
-            // Log incoming binary packet
             printHex(isMidi ? "NET RECV MIDI" : "NET RECV CTRL", payload);
 
             BinaryCallback cb;

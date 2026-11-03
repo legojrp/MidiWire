@@ -1,14 +1,11 @@
 #pragma once
 
 #include <rtc/rtc.hpp>
-#include <nlohmann/json.hpp>
-#include <functional>
 #include <memory>
-#include <vector>
 #include <string>
+#include <vector>
 #include <mutex>
-#include <cstdint>
-#include <variant>
+#include <functional>
 
 namespace MidiWire {
 
@@ -35,22 +32,24 @@ public:
 
     bool sendMidi(const std::vector<uint8_t>& payload);
     bool sendControl(const std::vector<uint8_t>& payload);
-    bool isConnected() const;
+    [[nodiscard]] bool isConnected() const;
 
 private:
     void setupDataChannelCallbacks(std::shared_ptr<rtc::DataChannel> channel, bool isMidi);
 
+    mutable std::mutex mutex_;
     std::shared_ptr<rtc::PeerConnection> pc_;
     std::shared_ptr<rtc::DataChannel> midiChannel_;
     std::shared_ptr<rtc::DataChannel> controlChannel_;
+
+    bool hasRemoteDescription_ = false;
+    std::vector<rtc::Candidate> pendingCandidates_;
 
     BinaryCallback onMidiReceived_;
     BinaryCallback onControlReceived_;
     StateCallback onStateChanged_;
     DescriptionCallback onLocalDescription_;
     CandidateCallback onLocalCandidate_;
-
-    mutable std::mutex mutex_;
 };
 
 } // namespace MidiWire

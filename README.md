@@ -324,27 +324,23 @@ MidiWire/
 * [x] Project workspace initialization with CMake.
 * [x] macOS CoreMIDI native virtual port validation.
 * [x] CoreMIDI physical hardware input capture validation.
-* [ ] Implement `MidiPacket` and `Serializer`.
-* [ ] Implement `JitterBuffer` priority queue and local playback worker thread.
+* [x] Implement `MidiPacket` and `Serializer`.
+* [x] Implement `JitterBuffer` priority queue and local playback worker thread.
 
 ### Phase 2: Dependency Integration & Networking Base
 
-* [ ] Integrate `libdatachannel` via Homebrew/CMake for WebRTC DataChannel abstraction.
-* [ ] Integrate `nlohmann_json` and `websocketpp` (or `libdatachannel` WebSocket client) for signaling.
-* [ ] Write a lightweight Node.js/Go Signaling Server for room matchmaking.
+* [x] Integrate `libdatachannel` via Homebrew/CMake for WebRTC DataChannel abstraction.
+* [x] Integrate `nlohmann_json` and `websocketpp` (or `libdatachannel` WebSocket client) for signaling.
+* [x] Write a lightweight Node.js/Go Signaling Server for room matchmaking.
 
 ### Phase 3: P2P Connectivity & Synchronization
 
-* [ ] Implement `SignalingClient` WebRTC SDP/ICE exchange.
-* [ ] Implement `NetworkEngine` with dual DataChannels (Fast Unreliable vs. Reliable).
-* [ ] Implement `ClockSynchronizer` ping/pong offset estimation.
+* [x] Implement `SignalingClient` WebRTC SDP/ICE exchange.
+* [x] Implement `NetworkEngine` with dual DataChannels (Fast Unreliable vs. Reliable).
+* [x] Implement `ClockSynchronizer` ping/pong offset estimation.
 
 ### Phase 4: Cross-Platform Abstractions & Hardening
 
-* [ ] Implement `WinMidiDriver` for Windows 10/11.
-* [ ] Implement `LinuxMidiDriver` via ALSA Sequencer.
-* [ ] Implement active sensing and network disconnection panic flush (`All Notes Off`).
-
----
-
-I can now generate `PROJECT_PLAN.md` directly in your workspace or begin implementing **Phase 1** by building out `include/core/MidiPacket.hpp`, `Serializer.hpp`, and `JitterBuffer.hpp`. Which step would you like to take next?
+* [x] Implement `WinMidiDriver` for Windows 10/11.
+* [x] Implement `LinuxMidiDriver` via ALSA Sequencer.
+* [x] Implement active sensing and network disconnection panic flush (`All Notes Off`).

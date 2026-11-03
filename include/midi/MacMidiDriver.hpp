@@ -1,13 +1,12 @@
 #pragma once
 
+#if defined(__APPLE__)
+
 #include "midi/IMidiDriver.hpp"
-
-#include <CoreFoundation/CoreFoundation.h>
 #include <CoreMIDI/CoreMIDI.h>
-
-#include <cstdint>
-#include <string>
-#include <vector>
+#include <CoreFoundation/CoreFoundation.h>
+#include <atomic>
+#include <mutex>
 
 namespace MidiWire {
 
@@ -27,9 +26,12 @@ private:
     MIDIClientRef client_{0};
     MIDIPortRef inputPort_{0};
     MIDIEndpointRef virtualSource_{0};
-    MidiInputCallback inputCallback_{nullptr};
+    MidiInputCallback inputCallback_;
+    mutable std::mutex mutex_;
 
-    static void coreMidiReadProc(const MIDIPacketList *pktlist, void *readProcRefCon, void *srcConnRefCon);
+    static void midiInputCallback(const MIDIPacketList* pktlist, void* readProcRefCon, void* srcConnRefCon);
 };
 
 } // namespace MidiWire
+
+#endif // __APPLE__

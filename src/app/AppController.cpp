@@ -169,4 +169,16 @@ void AppController::playbackLoop() {
     }
 }
 
+void AppController::onLocalMidiPacket(const MidiPacket& packet) {
+    // Drop continuous MIDI clock pulses (0xF8)
+    if (packet.status == 0xF8) {
+        return;
+    }
+
+    // Forward to WebRTC if connected
+    if (netEngine_ && netEngine_->isConnected()) {
+        auto payload = Serializer::serialize(packet);
+        netEngine_->sendMidi(payload);
+    }
+}
 } // namespace MidiWire

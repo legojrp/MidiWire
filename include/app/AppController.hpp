@@ -42,7 +42,9 @@ public:
 private:
     void playbackLoop();
     void handleLocalMidiInput(const MidiPacket& packet);
+    void onLocalMidiPacket(const MidiPacket& packet);
 
+    std::unique_ptr<IMidiDriver> midiDriver_;
     std::unique_ptr<MidiEngine> midiEngine_;
     std::unique_ptr<NetworkEngine> netEngine_;
     std::unique_ptr<SignalingClient> signalingClient_;

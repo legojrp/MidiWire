@@ -22,14 +22,23 @@ void CALLBACK WinMidiDriver::midiInProc(HMIDIIN hMidiIn, UINT wMsg, DWORD_PTR dw
         if (!driver) return;
 
         uint8_t rawStatus = dwParam1 & 0xFF;
-        uint8_t data1     = (dwParam1 >> 8) & 0xFF;
-        uint8_t data2     = (dwParam1 >> 16) & 0xFF;
-        uint8_t channel   = rawStatus & 0x0F;
+
+        // 1. Drop Active Sensing (0xFE) completely
+        if (rawStatus == 0xFE) {
+            return;
+        }
+
+        uint8_t data1   = (dwParam1 >> 8) & 0xFF;
+        uint8_t data2   = (dwParam1 >> 16) & 0xFF;
+        uint8_t channel = rawStatus & 0x0F;
 
         MidiPacket packet(rawStatus, data1, data2, channel, static_cast<uint64_t>(dwParam2));
 
-        std::vector<uint8_t> rawBytes = { packet.status, packet.data1, packet.data2 };
-        printMidiBytes("DRIVER IN", rawBytes.data(), rawBytes.size());
+        // 2. Only print log if it's not a repeating 0xF8 MIDI Clock pulse
+        if (rawStatus != 0xF8) {
+            std::vector<uint8_t> rawBytes = { packet.status, packet.data1, packet.data2 };
+            printMidiBytes("DRIVER IN", rawBytes.data(), rawBytes.size());
+        }
 
         if (driver->inputCallback_) {
             driver->inputCallback_(packet);

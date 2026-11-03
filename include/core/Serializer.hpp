@@ -5,6 +5,24 @@
 #include <cstdint>
 #include <cstring>
 
+// DEBUG
+
+#include <iostream>
+#include <iomanip>
+#include <vector>
+
+inline void printMidiBytes(const std::string& label, const uint8_t* data, size_t length) {
+    std::cout << "[" << label << "] (" << length << " bytes): ";
+    for (size_t i = 0; i < length; ++i) {
+        std::cout << "0x" << std::hex << std::setw(2) << std::setfill('0') 
+                  << static_cast<int>(data[i]) << " ";
+    }
+    std::cout << std::dec << std::endl;
+}
+
+// END DEBUG
+
+
 namespace MidiWire {
 
 class Serializer {

@@ -4,6 +4,32 @@
 
 namespace MidiWire {
 
+
+// DEBUG 
+// Inside WinMidiDriver.cpp (MIM_DATA event handler)
+void CALLBACK WinMidiDriver::midiInProc(HMIDIIN hMidiIn, UINT wMsg, DWORD_PTR dwInstance, DWORD_PTR dwParam1, DWORD_PTR dwParam2) {
+    if (wMsg == MIM_DATA) {
+        auto* driver = reinterpret_cast<WinMidiDriver*>(dwInstance);
+        
+        uint8_t status = dwParam1 & 0xFF;
+        uint8_t data1  = (dwParam1 >> 8) & 0xFF;
+        uint8_t data2  = (dwParam1 >> 16) & 0xFF;
+
+        std::vector<uint8_t> midiData = { status, data1, data2 };
+
+        // --- ADD THIS LOG ---
+        printMidiBytes("DRIVER IN", midiData.data(), midiData.size());
+
+        if (driver->inputCallback_) {
+            driver->inputCallback_(midiData, dwParam2); // dwParam2 is timestamp
+        }
+    }
+}
+// DEBUG
+
+
+
+
 WinMidiDriver::WinMidiDriver() = default;
 
 WinMidiDriver::~WinMidiDriver() {

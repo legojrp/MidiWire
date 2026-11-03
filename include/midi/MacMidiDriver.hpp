@@ -29,7 +29,7 @@ private:
     MidiInputCallback inputCallback_;
     mutable std::mutex mutex_;
 
-    static void midiInputCallback(const MIDIPacketList* pktlist, void* readProcRefCon, void* srcConnRefCon);
+    static void coreMidiReadProc(const MIDIPacketList* pktlist, void* readProcRefCon, void* srcConnRefCon);
 };
 
 } // namespace MidiWire

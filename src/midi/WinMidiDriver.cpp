@@ -25,12 +25,14 @@ void CALLBACK WinMidiDriver::midiInProc(HMIDIIN hMidiIn, UINT wMsg, DWORD_PTR dw
         uint8_t data1  = (dwParam1 >> 8) & 0xFF;
         uint8_t data2  = (dwParam1 >> 16) & 0xFF;
 
-        std::vector<uint8_t> midiData = { status, data1, data2 };
+        MidiPacket packet;
+        packet.bytes = { status, data1, data2 };
+        packet.timestamp = static_cast<uint64_t>(dwParam2);
 
-        printMidiBytes("DRIVER IN", midiData.data(), midiData.size());
+        printMidiBytes("DRIVER IN", packet.bytes.data(), packet.bytes.size());
 
         if (driver->inputCallback_) {
-            driver->inputCallback_(midiData); // Correct 1-argument call
+            driver->inputCallback_(packet);
         }
     }
 }
@@ -115,13 +117,14 @@ bool WinMidiDriver::createVirtualOutputPort(const std::string& portName) {
 void WinMidiDriver::sendToVirtualPort(const MidiPacket& packet) {
     if (!hMidiOut_) return;
 
-    printMidiBytes("DRIVER OUT", packet.data.data(), packet.data.size());
+    const auto& bytes = packet.bytes;
+    printMidiBytes("DRIVER OUT", bytes.data(), bytes.size());
 
-    if (packet.data.size() >= 3) {
-        DWORD msg = packet.data[0] | (packet.data[1] << 8) | (packet.data[2] << 16);
+    if (bytes.size() >= 3) {
+        DWORD msg = bytes[0] | (bytes[1] << 8) | (bytes[2] << 16);
         midiOutShortMsg(hMidiOut_, msg);
-    } else if (packet.data.size() == 2) {
-        DWORD msg = packet.data[0] | (packet.data[1] << 8);
+    } else if (bytes.size() == 2) {
+        DWORD msg = bytes[0] | (bytes[1] << 8);
         midiOutShortMsg(hMidiOut_, msg);
     }
 }
